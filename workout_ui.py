@@ -14,14 +14,7 @@ class PoseDetectionApp:
         self.root.geometry("900x700")
         self.root.configure(bg="#f0f0f0")
         
-        # MediaPipe initialization
-        self.mp_pose = mp.solutions.pose
-        self.mp_drawing = mp.solutions.drawing_utils
-        self.pose_template = None
-        self.pose_user = None
-        self.initialize_pose_models()
-
-        # Variables
+        # Initialize variables
         self.template_video_path = tk.StringVar()
         self.is_running = False
         self.template_video = None
@@ -30,15 +23,27 @@ class PoseDetectionApp:
         self.is_paused = False
         self.processing_thread = None
         self.stop_event = threading.Event()
+        
+        # MediaPipe initialization
+        self.mp_pose = mp.solutions.pose
+        self.mp_drawing = mp.solutions.drawing_utils
+        self.pose_template = None
+        self.pose_user = None
+        self.initialize_pose_models()
 
-        # Create UI with modern style
+        # Create UI
         self.create_widgets()
         
-        # Protocol handler for window closing
+        # Window closing handler
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def initialize_pose_models(self):
         """Initialize MediaPipe pose models"""
+        if self.pose_template:
+            self.pose_template.close()
+        if self.pose_user:
+            self.pose_user.close()
+            
         self.pose_template = self.mp_pose.Pose(
             static_image_mode=False, 
             min_detection_confidence=0.5, 
@@ -51,23 +56,24 @@ class PoseDetectionApp:
         )
 
     def create_widgets(self):
-        # Main frame with padding
+        # Main frame
         main_frame = tk.Frame(self.root, bg="#ffffff", padx=20, pady=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Title with better styling
-        title_label = tk.Label(main_frame, text="Exercise Pose Detection", font=("Helvetica", 24, "bold"), 
-                              bg="#ffffff", fg="#34495e")
+        # Title
+        title_label = tk.Label(main_frame, text="Exercise Pose Detection", 
+                             font=("Helvetica", 24, "bold"), 
+                             bg="#ffffff", fg="#34495e")
         title_label.pack(pady=(0, 20))
         
-        # File selection section with border and background
-        file_section = tk.LabelFrame(main_frame, text="Video Selection", font=("Helvetica", 14, "bold"), 
-                                    padx=15, pady=15, bg="#ecf0f1", relief=tk.RIDGE)
+        # File selection section
+        file_section = tk.LabelFrame(main_frame, text="Video Selection", 
+                                   font=("Helvetica", 14, "bold"), 
+                                   padx=15, pady=15, bg="#ecf0f1", relief=tk.RIDGE)
         file_section.pack(fill=tk.X, padx=10, pady=10)
         
-        # File selection UI
-        tk.Label(file_section, text="Template Exercise Video:", font=("Helvetica", 12), 
-                bg="#ecf0f1").grid(row=0, column=0, sticky=tk.W, pady=5)
+        tk.Label(file_section, text="Template Exercise Video:", 
+                font=("Helvetica", 12), bg="#ecf0f1").grid(row=0, column=0, sticky=tk.W, pady=5)
         
         file_frame = tk.Frame(file_section, bg="#ecf0f1")
         file_frame.grid(row=1, column=0, sticky=tk.W, pady=5)
@@ -79,21 +85,20 @@ class PoseDetectionApp:
         select_btn = ttk.Button(file_frame, text="Browse...", command=self.select_template_video)
         select_btn.pack(side=tk.LEFT)
         
-        # Preview label
-        self.preview_label = tk.Label(file_section, text="No video selected", font=("Helvetica", 11, "italic"), 
-                                     bg="#ecf0f1", fg="#7f8c8d")
+        self.preview_label = tk.Label(file_section, text="No video selected", 
+                                    font=("Helvetica", 11, "italic"), 
+                                    bg="#ecf0f1", fg="#7f8c8d")
         self.preview_label.grid(row=2, column=0, sticky=tk.W, pady=5)
         
         # Controls section
-        controls_section = tk.LabelFrame(main_frame, text="Controls", font=("Helvetica", 14, "bold"), 
-                                        padx=15, pady=15, bg="#ecf0f1", relief=tk.RIDGE)
+        controls_section = tk.LabelFrame(main_frame, text="Controls", 
+                                       font=("Helvetica", 14, "bold"), 
+                                       padx=15, pady=15, bg="#ecf0f1", relief=tk.RIDGE)
         controls_section.pack(fill=tk.X, padx=10, pady=10)
         
-        # Button frame with better styling
         button_frame = tk.Frame(controls_section, bg="#ecf0f1")
         button_frame.pack(pady=10)
         
-        # Create styled buttons
         self.start_btn = ttk.Button(button_frame, text="▶ Start Detection", 
                                   command=self.start_detection, state=tk.DISABLED)
         self.start_btn.pack(side=tk.LEFT, padx=10)
@@ -110,7 +115,7 @@ class PoseDetectionApp:
                                    command=self.resume_video, state=tk.DISABLED)
         self.resume_btn.pack(side=tk.LEFT, padx=10)
 
-        # Speed control with label
+        # Speed control
         speed_frame = tk.Frame(controls_section, bg="#ecf0f1")
         speed_frame.pack(pady=10, fill=tk.X)
         
@@ -128,11 +133,12 @@ class PoseDetectionApp:
         self.speed_label.pack(side=tk.LEFT, padx=5)
 
         # Result section
-        result_section = tk.LabelFrame(main_frame, text="Results", font=("Helvetica", 14, "bold"), 
-                                      padx=15, pady=15, bg="#ecf0f1", relief=tk.RIDGE)
+        result_section = tk.LabelFrame(main_frame, text="Results", 
+                                     font=("Helvetica", 14, "bold"), 
+                                     padx=15, pady=15, bg="#ecf0f1", relief=tk.RIDGE)
         result_section.pack(fill=tk.X, padx=10, pady=10)
         
-        # Similarity meter (progress bar)
+        # Similarity meter
         meter_frame = tk.Frame(result_section, bg="#ecf0f1")
         meter_frame.pack(pady=10, fill=tk.X)
         
@@ -152,7 +158,8 @@ class PoseDetectionApp:
         self.status_frame = tk.Frame(result_section, bg="#ecf0f1")
         self.status_frame.pack(pady=5, fill=tk.X)
         
-        self.status_label = tk.Label(self.status_frame, text="Ready to start", font=("Helvetica", 12), 
+        self.status_label = tk.Label(self.status_frame, text="Ready to start", 
+                                   font=("Helvetica", 12), 
                                    bg="#ecf0f1", fg="#2c3e50")
         self.status_label.pack()
 
@@ -170,24 +177,32 @@ class PoseDetectionApp:
             messagebox.showerror("Error", "Please select a template video first.")
             return
             
+        # If already running, stop first
         if self.is_running:
-            return
+            self.stop_detection()
+            time.sleep(0.5)  # Wait for resources to be released
             
+        # Clean up any existing resources
+        self.cleanup_resources()
+        
+        # Reinitialize pose models
+        self.initialize_pose_models()
+        
         self.status_label.config(text="Starting detection... Please wait")
         self.root.update()
         
-        # ปรับสถานะปุ่ม
+        # Update button states
         self.start_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
         self.pause_btn.config(state=tk.NORMAL)
         self.resume_btn.config(state=tk.DISABLED)
         
-        # รีเซ็ตสถานะ
+        # Reset states
         self.is_running = True
         self.is_paused = False
         self.stop_event.clear()
         
-        # สร้าง thread ใหม่
+        # Start new thread
         self.processing_thread = threading.Thread(target=self.run_detection, daemon=True)
         self.processing_thread.start()
         
@@ -198,20 +213,23 @@ class PoseDetectionApp:
             self.stop_event.set()
             self.status_label.config(text="Stopping detection...")
             
-            # รอให้ thread จบการทำงาน
+            # Wait for thread to finish
             if self.processing_thread and self.processing_thread.is_alive():
                 self.processing_thread.join(timeout=1.0)
             
             self.is_running = False
             self.is_paused = False
             
-            # ปรับสถานะปุ่ม
-            self.start_btn.config(state=tk.NORMAL)
+            # Clean up resources
+            self.cleanup_resources()
+            
+            # Update button states
+            self.start_btn.config(state=tk.NORMAL if self.template_video_path.get() else tk.DISABLED)
             self.stop_btn.config(state=tk.DISABLED)
             self.pause_btn.config(state=tk.DISABLED)
             self.resume_btn.config(state=tk.DISABLED)
             
-            # ปรับค่าความคล้ายกลับเป็น 0
+            # Reset similarity display
             self.similarity_var.set(0)
             self.similarity_label.config(text="0%")
             
@@ -259,78 +277,75 @@ class PoseDetectionApp:
         self.similarity_var.set(similarity)
         self.similarity_label.config(text=f"{similarity:.1f}%")
         
-        # ปรับสีตามค่าความคล้าย
+        # Update color based on similarity
         if similarity > 70:
-            color = "#28a745"  # เขียว
+            color = "#28a745"  # Green
         elif similarity > 40:
-            color = "#ffc107"  # เหลือง
+            color = "#ffc107"  # Yellow
         else:
-            color = "#dc3545"  # แดง
+            color = "#dc3545"  # Red
         
         self.similarity_label.config(fg=color)
 
     def run_detection(self):
         try:
-            # เปิดวิดีโอ
+            # Open template video
             self.template_video = cv2.VideoCapture(self.template_video_path.get())
             
-            # พยายามเปิดกล้องเว็บแคมหลายครั้ง (ถ้าจำเป็น)
+            # Try to open webcam with multiple attempts
             max_attempts = 3
             for attempt in range(max_attempts):
                 self.user_video = cv2.VideoCapture(0)
                 if self.user_video.isOpened():
                     break
-                time.sleep(1)  # รอ 1 วินาทีก่อนพยายามอีกครั้ง
+                time.sleep(1)  # Wait before retrying
+                if attempt == max_attempts - 1:
+                    raise RuntimeError("Failed to open webcam after multiple attempts")
             
             if not self.template_video.isOpened():
-                self.root.after(0, messagebox.showerror, "Error", "Cannot open template video.")
-                self.root.after(0, self.stop_detection)
-                return
+                raise RuntimeError("Cannot open template video")
                 
             if not self.user_video.isOpened():
-                self.root.after(0, messagebox.showerror, "Error", "Cannot open webcam after multiple attempts. Please check your camera.")
-                self.root.after(0, self.stop_detection)
-                return
+                raise RuntimeError("Cannot open webcam")
             
-            # ลูปหลักของการประมวลผล
+            # Main processing loop
             while not self.stop_event.is_set():
                 if self.is_paused:
                     time.sleep(0.1)
                     continue
                 
-                # อ่านเฟรมจากวิดีโอ
+                # Read frames
                 ret1, frame1 = self.template_video.read()
                 ret2, frame2 = self.user_video.read()
                 
-                # ตรวจสอบการอ่านวิดีโอ
+                # Check frame reading
                 if not ret1:
                     self.template_video.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     continue
                     
                 if not ret2 or frame2 is None:
-                    self.root.after(0, messagebox.showwarning, "Warning", "Cannot read frame from webcam.")
-                    break
+                    raise RuntimeError("Cannot read frame from webcam")
                 
-                # พลิกภาพกล้อง
+                # Flip webcam frame
                 frame2 = cv2.flip(frame2, 1)
                 
-                # ตรวจสอบเฟรมว่าถูกต้อง
+                # Check frame validity
                 if frame1 is None:
                     continue
                 
                 try:
-                    # ปรับขนาดเฟรมให้เท่ากัน (ถ้าจำเป็น)
+                    # Resize frames to match dimensions
                     if frame1.shape != frame2.shape:
                         frame2 = cv2.resize(frame2, (frame1.shape[1], frame1.shape[0]))
                     
-                    # แปลงสีและตรวจจับท่าทาง
+                    # Convert colors and process poses
                     image1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2RGB)
                     image2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2RGB)
                     
                     results1 = self.pose_template.process(image1)
                     results2 = self.pose_user.process(image2)
                     
-                    # ดึงจุด landmark
+                    # Extract landmarks
                     pose1 = []
                     pose2 = []
                     
@@ -340,13 +355,13 @@ class PoseDetectionApp:
                     if results2.pose_landmarks:
                         pose2 = [[lm.x, lm.y] for lm in results2.pose_landmarks.landmark]
                     
-                    # คำนวณความคล้าย
+                    # Calculate similarity
                     similarity = self.compare_poses(pose1, pose2)
                     
-                    # อัพเดต UI จาก thread หลัก
+                    # Update UI
                     self.root.after(0, self.update_similarity_display, similarity)
                     
-                    # วาด landmark บนเฟรม
+                    # Draw landmarks on frame
                     if results2.pose_landmarks:
                         self.mp_drawing.draw_landmarks(
                             frame2, 
@@ -354,57 +369,66 @@ class PoseDetectionApp:
                             self.mp_pose.POSE_CONNECTIONS
                         )
                     
-                    # เพิ่มข้อความบนเฟรม
+                    # Add similarity text
                     color = (0, 255, 0) if similarity > 70 else (0, 0, 255)
                     cv2.putText(frame2, f'Similarity: {similarity:.1f}%', (10, 50), 
                                cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
                     
-                    # รวมเฟรมและแสดงผล
+                    # Combine and display frames
                     combined = np.hstack((frame1, frame2))
                     cv2.imshow('Pose Detection', combined)
                     
-                    # ควบคุมความเร็ว
+                    # Control playback speed
                     wait_time = max(1, int(10 / self.video_speed))
                     if cv2.waitKey(wait_time) & 0xFF == ord('q'):
                         break
                 
                 except Exception as e:
-                    self.root.after(0, messagebox.showerror, "Processing Error", f"Error processing frame: {str(e)}")
+                    self.root.after(0, messagebox.showerror, 
+                                   "Processing Error", 
+                                   f"Error processing frame: {str(e)}")
                     break
         
         except Exception as e:
-            self.root.after(0, messagebox.showerror, "Error", f"An unexpected error occurred: {str(e)}")
+            self.root.after(0, messagebox.showerror, 
+                          "Error", 
+                          f"An unexpected error occurred: {str(e)}")
         
         finally:
             self.cleanup_resources()
             self.root.after(0, self.reset_ui)
 
     def cleanup_resources(self):
-        """ทำความสะอาดและปล่อยทรัพยากรทั้งหมด"""
+        """Clean up all resources"""
         try:
-            if self.template_video and self.template_video.isOpened():
-                self.template_video.release()
+            # Release video captures
+            if hasattr(self, 'template_video') and self.template_video is not None:
+                if self.template_video.isOpened():
+                    self.template_video.release()
+                self.template_video = None
+                
+            if hasattr(self, 'user_video') and self.user_video is not None:
+                if self.user_video.isOpened():
+                    self.user_video.release()
+                self.user_video = None
             
-            if self.user_video and self.user_video.isOpened():
-                self.user_video.release()
-            
-            if self.pose_template:
+            # Close pose models
+            if hasattr(self, 'pose_template') and self.pose_template is not None:
                 self.pose_template.close()
-            
-            if self.pose_user:
+                self.pose_template = None
+                
+            if hasattr(self, 'pose_user') and self.pose_user is not None:
                 self.pose_user.close()
+                self.pose_user = None
             
+            # Close OpenCV windows
             cv2.destroyAllWindows()
             
         except Exception as e:
             print(f"Error during cleanup: {str(e)}")
-        
-        finally:
-            self.template_video = None
-            self.user_video = None
 
     def reset_ui(self):
-        """รีเซ็ต UI กลับสู่สถานะเริ่มต้น"""
+        """Reset UI to initial state"""
         self.is_running = False
         self.is_paused = False
         self.similarity_var.set(0)
@@ -416,13 +440,11 @@ class PoseDetectionApp:
         self.status_label.config(text="Ready to start")
 
     def on_closing(self):
-        """จัดการเมื่อกดปิดหน้าต่าง"""
+        """Handle window closing"""
         if self.is_running:
             self.stop_detection()
-            # รอให้ thread หยุดทำงาน
-            time.sleep(0.5)
+            time.sleep(0.5)  # Wait for thread to stop
         
-        # ทำความสะอาดทรัพยากรก่อนปิด
         self.cleanup_resources()
         self.root.destroy()
 
