@@ -25,6 +25,7 @@ class PoseDetectionApp:
         self.user_video = None
         self.video_speed = 1.0
         self.is_paused = False
+        self.frame_counter = 0
 
         # Create UI
         self.create_widgets()
@@ -123,23 +124,37 @@ class PoseDetectionApp:
             messagebox.showerror("Error", "Cannot open webcam. Please check your camera and try again.")
             self.stop_detection()
             return
+        
+        # ดึง frame rate เดิมของวิดีโอต้นแบบ
+        base_fps = self.template_video.get(cv2.CAP_PROP_FPS) or 30  # Default 30 ถ้าได้ 0
+        
         while self.is_running:
             if self.is_paused:
+                cv2.waitKey(100)  # รอสั้นๆ เมื่อหยุดชั่วคราว
                 continue
-            ret1, frame1 = self.template_video.read()
+            
+            # อ่านเฟรมจากกล้องผู้ใช้ทุกครั้ง
             ret2, frame2 = self.user_video.read()
-            if not ret1:
-                self.template_video.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            if not ret2 or frame2 is None:
                 continue
-            if not ret2:
-                break
+            
+            # จัดการความเร็วเฉพาะวิดีโอต้นแบบ
+            self.frame_counter += self.video_speed
+            frames_to_process = int(self.frame_counter)
+            self.frame_counter -= frames_to_process
+            
+            # อ่านเฟรมวิดีโอต้นแบบตามความเร็ว
+            ret1, frame1 = None, None
+            for _ in range(max(1, frames_to_process)):  # อ่านอย่างน้อย 1 เฟรม
+                ret1, frame1 = self.template_video.read()
+                if not ret1:
+                    self.template_video.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ret1, frame1 = self.template_video.read()
+            
+            if not ret1 or frame1 is None:
+                continue
+            
             frame2 = cv2.flip(frame2, 1)
-            
-            # ตรวจสอบว่าเฟรมไม่เป็น None และปรับขนาดให้เท่ากัน
-            if frame1 is None or frame2 is None:
-                continue
-            
-            # ปรับขนาด frame2 ให้เท่ากับ frame1
             frame2 = cv2.resize(frame2, (frame1.shape[1], frame1.shape[0]))
 
             image1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2RGB)
@@ -147,26 +162,24 @@ class PoseDetectionApp:
             results1 = self.pose_template.process(image1)
             results2 = self.pose_user.process(image2)
             
-            # การตรวจจับ pose
             pose1 = [[lm.x, lm.y] for lm in results1.pose_landmarks.landmark] if results1.pose_landmarks else []
             pose2 = [[lm.x, lm.y] for lm in results2.pose_landmarks.landmark] if results2.pose_landmarks else []
             
-            # คำนวณความคล้ายคลึง
             similarity = self.compare_poses(pose1, pose2) if pose1 and pose2 else 0
             self.root.after(0, self.result_label.config, {"text": f"Pose Similarity: {similarity:.2f}%", "fg": "green" if similarity > 70 else "red"})
             
-            # วาด landmark และแสดงผล
             self.mp_drawing.draw_landmarks(frame2, results2.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
-            cv2.putText(frame2, f'Similarity: {similarity:.2f}%', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0) if similarity > 70 else (0, 0, 255), 2)
+            cv2.putText(frame2, f'Similarity: {similarity:.2f}%', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, 
+                       (0, 255, 0) if similarity > 70 else (0, 0, 255), 2)
 
-            # รวม frame1 และ frame2
             combined = np.hstack((frame1, frame2))
-            
-            # แสดงผล
             cv2.imshow('Pose Detection', combined)
             
-            # ควบคุมความเร็วของวิดีโอ
-            if cv2.waitKey(int(10 / self.video_speed)) & 0xFF == ord('q'):
+            # Delay คงที่สำหรับกล้องผู้ใช้ ไม่ขึ้นกับ video_speed
+            delay = int(1000 / base_fps)  # ใช้ frame rate เดิมของวิดีโอต้นแบบเป็นฐาน
+            if delay < 1:
+                delay = 1
+            if cv2.waitKey(delay) & 0xFF == ord('q'):
                 break
         self.stop_detection()
 
