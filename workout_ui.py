@@ -22,7 +22,14 @@ class PoseDetectionApp:
         self.video_speed = 1.0
         self.is_paused = False
         self.frame_counter = 0
-
+        self.stop_event = threading.Event()
+        
+        # Initialize MediaPipe
+        self.mp_pose = mp.solutions.pose
+        self.mp_drawing = mp.solutions.drawing_utils
+        self.pose_template = None
+        self.pose_user = None
+        
         # Create UI
         self.create_widgets()
         
@@ -31,9 +38,9 @@ class PoseDetectionApp:
 
     def initialize_pose_models(self):
         """Initialize MediaPipe pose models"""
-        if self.pose_template:
+        if hasattr(self, 'pose_template') and self.pose_template:
             self.pose_template.close()
-        if self.pose_user:
+        if hasattr(self, 'pose_user') and self.pose_user:
             self.pose_user.close()
             
         self.pose_template = self.mp_pose.Pose(
@@ -169,32 +176,25 @@ class PoseDetectionApp:
             messagebox.showerror("Error", "Please select a template video first.")
             return
             
-        # If already running, stop first
         if self.is_running:
             self.stop_detection()
-            time.sleep(0.5)  # Wait for resources to be released
+            time.sleep(0.5)
             
-        # Clean up any existing resources
         self.cleanup_resources()
-        
-        # Reinitialize pose models
         self.initialize_pose_models()
         
         self.status_label.config(text="Starting detection... Please wait")
         self.root.update()
         
-        # Update button states
         self.start_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
         self.pause_btn.config(state=tk.NORMAL)
         self.resume_btn.config(state=tk.DISABLED)
         
-        # Reset states
         self.is_running = True
         self.is_paused = False
         self.stop_event.clear()
         
-        # Start new thread
         self.processing_thread = threading.Thread(target=self.run_detection, daemon=True)
         self.processing_thread.start()
         
@@ -205,23 +205,19 @@ class PoseDetectionApp:
             self.stop_event.set()
             self.status_label.config(text="Stopping detection...")
             
-            # Wait for thread to finish
             if self.processing_thread and self.processing_thread.is_alive():
                 self.processing_thread.join(timeout=1.0)
             
             self.is_running = False
             self.is_paused = False
             
-            # Clean up resources
             self.cleanup_resources()
             
-            # Update button states
             self.start_btn.config(state=tk.NORMAL if self.template_video_path.get() else tk.DISABLED)
             self.stop_btn.config(state=tk.DISABLED)
             self.pause_btn.config(state=tk.DISABLED)
             self.resume_btn.config(state=tk.DISABLED)
             
-            # Reset similarity display
             self.similarity_var.set(0)
             self.similarity_label.config(text="0%")
             
@@ -262,14 +258,13 @@ class PoseDetectionApp:
             total_distance += self.calculate_distance(pose1[i], pose2[i])
         
         avg_distance = total_distance / num_points if num_points > 0 else 0
-        similarity = 1 - min(avg_distance, 1.0)  # Normalize to 0-1
+        similarity = 1 - min(avg_distance, 1.0)
         return max(0, min(similarity, 1)) * 100
 
     def update_similarity_display(self, similarity):
         self.similarity_var.set(similarity)
         self.similarity_label.config(text=f"{similarity:.1f}%")
         
-        # Update color based on similarity
         if similarity > 70:
             color = "#28a745"  # Green
         elif similarity > 40:
@@ -281,79 +276,69 @@ class PoseDetectionApp:
 
     def run_detection(self):
         try:
-            # Open template video
             self.template_video = cv2.VideoCapture(self.template_video_path.get())
-            
-            # Try to open webcam with multiple attempts
-            max_attempts = 3
-            for attempt in range(max_attempts):
-                self.user_video = cv2.VideoCapture(0)
+            if not self.template_video.isOpened():
+                raise RuntimeError(f"Failed to open template video: {self.template_video_path.get()}")
+                
+            camera_indices = [0, 1, 2]
+            for index in camera_indices:
+                self.user_video = cv2.VideoCapture(index)
                 if self.user_video.isOpened():
                     break
-                time.sleep(1)  # Wait before retrying
-                if attempt == max_attempts - 1:
-                    raise RuntimeError("Failed to open webcam after multiple attempts")
+                self.user_video.release()
+            else:
+                raise RuntimeError("Failed to open webcam - please check camera connection")
             
-            if not self.template_video.isOpened():
-                raise RuntimeError("Cannot open template video")
-                
-            if not self.user_video.isOpened():
-                raise RuntimeError("Cannot open webcam")
+            self.user_video.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.user_video.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             
-            # Main processing loop
-            while not self.stop_event.is_set():
+            # Get base FPS of template video
+            base_fps = self.template_video.get(cv2.CAP_PROP_FPS) or 30  # Default to 30 if FPS not available
+            frame_interval = 1.0 / base_fps  # Time per frame in seconds
+            
+            while self.is_running and not self.stop_event.is_set():
                 if self.is_paused:
                     time.sleep(0.1)
                     continue
                 
-                # Read frames
-                ret1, frame1 = self.template_video.read()
+                # Calculate frame skipping based on video speed
+                self.frame_counter += self.video_speed
+                frames_to_skip = int(self.frame_counter)
+                self.frame_counter -= frames_to_skip
+                
+                # Read template video frame with speed control
+                ret1, frame1 = None, None
+                for _ in range(max(1, frames_to_skip)):
+                    ret1, frame1 = self.template_video.read()
+                    if not ret1 or frame1 is None:
+                        self.template_video.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ret1, frame1 = self.template_video.read()
+                
+                # Read user video frame (always real-time)
                 ret2, frame2 = self.user_video.read()
                 
-                # Check frame reading
-                if not ret1:
-                    self.template_video.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                if not ret1 or frame1 is None or not ret2 or frame2 is None:
                     continue
-                    
-                if not ret2 or frame2 is None:
-                    raise RuntimeError("Cannot read frame from webcam")
                 
-                # Flip webcam frame
                 frame2 = cv2.flip(frame2, 1)
                 
-                # Check frame validity
-                if frame1 is None:
-                    continue
-                
                 try:
-                    # Resize frames to match dimensions
                     if frame1.shape != frame2.shape:
                         frame2 = cv2.resize(frame2, (frame1.shape[1], frame1.shape[0]))
                     
-                    # Convert colors and process poses
                     image1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2RGB)
                     image2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2RGB)
                     
                     results1 = self.pose_template.process(image1)
                     results2 = self.pose_user.process(image2)
                     
-                    # Extract landmarks
-                    pose1 = []
-                    pose2 = []
+                    pose1 = [[lm.x, lm.y] for lm in results1.pose_landmarks.landmark] if results1.pose_landmarks else []
+                    pose2 = [[lm.x, lm.y] for lm in results2.pose_landmarks.landmark] if results2.pose_landmarks else []
                     
-                    if results1.pose_landmarks:
-                        pose1 = [[lm.x, lm.y] for lm in results1.pose_landmarks.landmark]
-                    
-                    if results2.pose_landmarks:
-                        pose2 = [[lm.x, lm.y] for lm in results2.pose_landmarks.landmark]
-                    
-                    # Calculate similarity
                     similarity = self.compare_poses(pose1, pose2)
                     
-                    # Update UI
                     self.root.after(0, self.update_similarity_display, similarity)
                     
-                    # Draw landmarks on frame
                     if results2.pose_landmarks:
                         self.mp_drawing.draw_landmarks(
                             frame2, 
@@ -361,30 +346,24 @@ class PoseDetectionApp:
                             self.mp_pose.POSE_CONNECTIONS
                         )
                     
-                    # Add similarity text
                     color = (0, 255, 0) if similarity > 70 else (0, 0, 255)
                     cv2.putText(frame2, f'Similarity: {similarity:.1f}%', (10, 50), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+                              cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
                     
-                    # Combine and display frames
                     combined = np.hstack((frame1, frame2))
                     cv2.imshow('Pose Detection', combined)
                     
-                    # Control playback speed
-                    wait_time = max(1, int(10 / self.video_speed))
+                    # Adjust wait time based on base FPS and video speed
+                    wait_time = max(1, int((frame_interval * 1000) / self.video_speed))
                     if cv2.waitKey(wait_time) & 0xFF == ord('q'):
                         break
                 
                 except Exception as e:
-                    self.root.after(0, messagebox.showerror, 
-                                   "Processing Error", 
-                                   f"Error processing frame: {str(e)}")
-                    break
+                    print(f"Frame processing error: {str(e)}")
+                    continue
         
         except Exception as e:
-            self.root.after(0, messagebox.showerror, 
-                          "Error", 
-                          f"An unexpected error occurred: {str(e)}")
+            self.root.after(0, messagebox.showerror, "Error", f"Video initialization error: {str(e)}")
         
         finally:
             self.cleanup_resources()
@@ -393,31 +372,22 @@ class PoseDetectionApp:
     def cleanup_resources(self):
         """Clean up all resources"""
         try:
-            # Release video captures
-            if hasattr(self, 'template_video') and self.template_video is not None:
-                if self.template_video.isOpened():
-                    self.template_video.release()
-                self.template_video = None
-                
-            if hasattr(self, 'user_video') and self.user_video is not None:
-                if self.user_video.isOpened():
-                    self.user_video.release()
-                self.user_video = None
-            
-            # Close pose models
-            if hasattr(self, 'pose_template') and self.pose_template is not None:
+            if self.template_video is not None and self.template_video.isOpened():
+                self.template_video.release()
+            if self.user_video is not None and self.user_video.isOpened():
+                self.user_video.release()
+            if self.pose_template is not None:
                 self.pose_template.close()
-                self.pose_template = None
-                
-            if hasattr(self, 'pose_user') and self.pose_user is not None:
+            if self.pose_user is not None:
                 self.pose_user.close()
-                self.pose_user = None
-            
-            # Close OpenCV windows
             cv2.destroyAllWindows()
-            
         except Exception as e:
             print(f"Error during cleanup: {str(e)}")
+        finally:
+            self.template_video = None
+            self.user_video = None
+            self.pose_template = None
+            self.pose_user = None
 
     def reset_ui(self):
         """Reset UI to initial state"""
@@ -435,66 +405,8 @@ class PoseDetectionApp:
         """Handle window closing"""
         if self.is_running:
             self.stop_detection()
-            return
-        
-        # ดึง frame rate เดิมของวิดีโอต้นแบบ
-        base_fps = self.template_video.get(cv2.CAP_PROP_FPS) or 30  # Default 30 ถ้าได้ 0
-        
-        while self.is_running:
-            if self.is_paused:
-                cv2.waitKey(100)  # รอสั้นๆ เมื่อหยุดชั่วคราว
-                continue
-            
-            # อ่านเฟรมจากกล้องผู้ใช้ทุกครั้ง
-            ret2, frame2 = self.user_video.read()
-            if not ret2 or frame2 is None:
-                continue
-            
-            # จัดการความเร็วเฉพาะวิดีโอต้นแบบ
-            self.frame_counter += self.video_speed
-            frames_to_process = int(self.frame_counter)
-            self.frame_counter -= frames_to_process
-            
-            # อ่านเฟรมวิดีโอต้นแบบตามความเร็ว
-            ret1, frame1 = None, None
-            for _ in range(max(1, frames_to_process)):  # อ่านอย่างน้อย 1 เฟรม
-                ret1, frame1 = self.template_video.read()
-                if not ret1:
-                    self.template_video.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    ret1, frame1 = self.template_video.read()
-            
-            if not ret1 or frame1 is None:
-                continue
-            
-            frame2 = cv2.flip(frame2, 1)
-            frame2 = cv2.resize(frame2, (frame1.shape[1], frame1.shape[0]))
-
-            image1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2RGB)
-            image2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2RGB)
-            results1 = self.pose_template.process(image1)
-            results2 = self.pose_user.process(image2)
-            
-            pose1 = [[lm.x, lm.y] for lm in results1.pose_landmarks.landmark] if results1.pose_landmarks else []
-            pose2 = [[lm.x, lm.y] for lm in results2.pose_landmarks.landmark] if results2.pose_landmarks else []
-            
-            similarity = self.compare_poses(pose1, pose2) if pose1 and pose2 else 0
-            self.root.after(0, self.result_label.config, {"text": f"Pose Similarity: {similarity:.2f}%", "fg": "green" if similarity > 70 else "red"})
-            
-            self.mp_drawing.draw_landmarks(frame2, results2.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
-            cv2.putText(frame2, f'Similarity: {similarity:.2f}%', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, 
-                       (0, 255, 0) if similarity > 70 else (0, 0, 255), 2)
-
-            combined = np.hstack((frame1, frame2))
-            cv2.imshow('Pose Detection', combined)
-            
-            # Delay คงที่สำหรับกล้องผู้ใช้ ไม่ขึ้นกับ video_speed
-            delay = int(1000 / base_fps)  # ใช้ frame rate เดิมของวิดีโอต้นแบบเป็นฐาน
-            if delay < 1:
-                delay = 1
-            if cv2.waitKey(delay) & 0xFF == ord('q'):
-                break
-        self.stop_detection()
-
+        self.cleanup_resources()
+        self.root.destroy()
 
 def main():
     root = tk.Tk()
