@@ -337,8 +337,8 @@ class PoseDetectionApp:
 
         avg_distance = total_distance / len(JOINT_RELATIONS)
         similarity = 1 - min(avg_distance, 1.0)
-        per = ((max(0, min(similarity, 1)) * 100)/70)*100
-        return 
+        per = min(((max(0, min(similarity, 1)) * 100)/80) * 100,100)
+        return per
 
 
 
@@ -396,13 +396,13 @@ class PoseDetectionApp:
                         ret1, frame1 = self.template_video.read()
                 
                 # Read user video frame (always real-time)
-                # ret1, frame1 = self.user_video.read()
+                ret1, frame1 = self.user_video.read()
                 ret2, frame2 = self.user_video.read()
                 
                 if not ret1 or frame1 is None or not ret2 or frame2 is None:
                     continue
 
-                # frame1 = cv2.flip(frame1, 1)
+                frame1 = cv2.flip(frame1, 1)
                 frame2 = cv2.flip(frame2, 1)
                 
                 try:
