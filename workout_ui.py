@@ -152,6 +152,22 @@ class PoseDetectionApp:
         self.similarity_label = tk.Label(meter_frame, text="0%", font=("Helvetica", 12, "bold"), 
                                        bg="#ecf0f1", width=6)
         self.similarity_label.pack(side=tk.LEFT, padx=5)
+
+        # Skeleton visibility controls
+        skeleton_frame = tk.Frame(controls_section, bg="#ecf0f1")
+        skeleton_frame.pack(pady=10, fill=tk.X)
+
+        self.show_skeleton_template = tk.BooleanVar(value=True)
+        self.show_skeleton_user = tk.BooleanVar(value=True)
+
+        template_skeleton_chk = ttk.Checkbutton(skeleton_frame, text="Show Template Skeleton", 
+                                                variable=self.show_skeleton_template)
+        template_skeleton_chk.pack(side=tk.LEFT, padx=10)
+
+        user_skeleton_chk = ttk.Checkbutton(skeleton_frame, text="Show User Skeleton", 
+                                            variable=self.show_skeleton_user)
+        user_skeleton_chk.pack(side=tk.LEFT, padx=10)
+
         
         # Status message
         self.status_frame = tk.Frame(result_section, bg="#ecf0f1")
@@ -248,18 +264,44 @@ class PoseDetectionApp:
     def calculate_distance(self, a, b):
         return np.linalg.norm(np.array(a) - np.array(b))
 
+
     def compare_poses(self, pose1, pose2):
         if not pose1 or not pose2 or len(pose1) != len(pose2):
             return 0
-            
+
+        # Define important relative joint pairs (based on Mediapipe's landmark index)
+        JOINT_RELATIONS = [
+            (15, 13),  # Right wrist → right elbow
+            (13, 11),  # Right elbow → right shoulder
+            (11, 0),   # Right shoulder → nose
+            (16, 14),  # Left wrist → left elbow
+            (14, 12),  # Left elbow → left shoulder
+            (12, 0),   # Left shoulder → nose
+            (27, 25),  # Right ankle → right knee
+            (25, 23),  # Right knee → right hip
+            (28, 26),  # Left ankle → left knee
+            (26, 24),  # Left knee → left hip
+            # (11, 12),  # test shoulder
+        ]
+
         total_distance = 0
-        num_points = len(pose1)
-        for i in range(num_points):
-            total_distance += self.calculate_distance(pose1[i], pose2[i])
-        
-        avg_distance = total_distance / num_points if num_points > 0 else 0
+        for a, b in JOINT_RELATIONS:
+            if a >= len(pose1) or b >= len(pose1) or a >= len(pose2) or b >= len(pose2):
+                continue  # skip if out of bounds
+            
+            vec1 = np.array(pose1[a]) - np.array(pose1[b])
+            vec2 = np.array(pose2[a]) - np.array(pose2[b])
+            
+            distance = self.calculate_distance(vec1, vec2)
+            print(a , " " , b , " : ", distance)
+            print(vec1," ",vec2)
+            total_distance += distance
+
+        avg_distance = total_distance / len(JOINT_RELATIONS)
         similarity = 1 - min(avg_distance, 1.0)
         return max(0, min(similarity, 1)) * 100
+
+
 
     def update_similarity_display(self, similarity):
         self.similarity_var.set(similarity)
@@ -315,11 +357,13 @@ class PoseDetectionApp:
                         ret1, frame1 = self.template_video.read()
                 
                 # Read user video frame (always real-time)
+                ret1, frame1 = self.user_video.read()
                 ret2, frame2 = self.user_video.read()
                 
                 if not ret1 or frame1 is None or not ret2 or frame2 is None:
                     continue
-                
+
+                frame1 = cv2.flip(frame1, 1)
                 frame2 = cv2.flip(frame2, 1)
                 
                 try:
@@ -338,13 +382,12 @@ class PoseDetectionApp:
                     similarity = self.compare_poses(pose1, pose2)
                     
                     self.root.after(0, self.update_similarity_display, similarity)
-                    
-                    if results2.pose_landmarks:
-                        self.mp_drawing.draw_landmarks(
-                            frame2, 
-                            results2.pose_landmarks, 
-                            self.mp_pose.POSE_CONNECTIONS
-                        )
+
+                    if results1.pose_landmarks and self.show_skeleton_template.get():
+                                self.mp_drawing.draw_landmarks(frame1, results1.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+
+                    if results2.pose_landmarks and self.show_skeleton_user.get():
+                        self.mp_drawing.draw_landmarks(frame2, results2.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
                     
                     color = (0, 255, 0) if similarity > 70 else (0, 0, 255)
                     cv2.putText(frame2, f'Similarity: {similarity:.1f}%', (10, 50), 
