@@ -265,41 +265,80 @@ class PoseDetectionApp:
         return np.linalg.norm(np.array(a) - np.array(b))
 
 
+    # def compare_poses(self, pose1, pose2):
+    #     if not pose1 or not pose2 or len(pose1) != len(pose2):
+    #         return 0
+
+    #     # Define important relative joint pairs (based on Mediapipe's landmark index)
+    #     JOINT_RELATIONS = [
+    #         (15, 13),  # Right wrist → right elbow
+    #         (13, 11),  # Right elbow → right shoulder
+    #         (11, 0),   # Right shoulder → nose
+    #         (16, 14),  # Left wrist → left elbow
+    #         (14, 12),  # Left elbow → left shoulder
+    #         (12, 0),   # Left shoulder → nose
+    #         (27, 25),  # Right ankle → right knee
+    #         (25, 23),  # Right knee → right hip
+    #         (28, 26),  # Left ankle → left knee
+    #         (26, 24),  # Left knee → left hip
+    #     ]
+
+    #     total_distance = 0
+    #     for a, b in JOINT_RELATIONS:
+    #         if a >= len(pose1) or b >= len(pose1) or a >= len(pose2) or b >= len(pose2):
+    #             continue  # skip if out of bounds
+            
+    #         vec1 = np.array(pose1[a]) - np.array(pose1[b])
+    #         vec2 = np.array(pose2[a]) - np.array(pose2[b])
+            
+    #         distance = self.calculate_distance(vec1, vec2)
+    #         print(a , " " , b , " : ", distance)
+    #         print(vec1," ",vec2)
+    #         total_distance += distance
+
+    #     avg_distance = total_distance / len(JOINT_RELATIONS)
+    #     similarity = 1 - min(avg_distance, 1.0)
+    #     return max(0, min(similarity, 1)) * 100
+    def normalize_pose(self, pose):
+        if not pose:
+            return None
+
+        left_shoulder = np.array(pose[12])
+        right_shoulder = np.array(pose[11])
+        shoulder_width = np.linalg.norm(left_shoulder - right_shoulder)
+
+        if shoulder_width == 0:
+            return None
+
+        return [(np.array(p) - right_shoulder) / shoulder_width for p in pose]
+    
     def compare_poses(self, pose1, pose2):
+        pose1 = self.normalize_pose(pose1)
+        pose2 = self.normalize_pose(pose2)
+        
         if not pose1 or not pose2 or len(pose1) != len(pose2):
             return 0
 
-        # Define important relative joint pairs (based on Mediapipe's landmark index)
         JOINT_RELATIONS = [
-            (15, 13),  # Right wrist → right elbow
-            (13, 11),  # Right elbow → right shoulder
-            (11, 0),   # Right shoulder → nose
-            (16, 14),  # Left wrist → left elbow
-            (14, 12),  # Left elbow → left shoulder
-            (12, 0),   # Left shoulder → nose
-            (27, 25),  # Right ankle → right knee
-            (25, 23),  # Right knee → right hip
-            (28, 26),  # Left ankle → left knee
-            (26, 24),  # Left knee → left hip
-            # (11, 12),  # test shoulder
+            (15, 13), (13, 11), (11, 0),
+            (16, 14), (14, 12), (12, 0),
+            (27, 25), (25, 23), (28, 26), (26, 24)
         ]
 
         total_distance = 0
         for a, b in JOINT_RELATIONS:
             if a >= len(pose1) or b >= len(pose1) or a >= len(pose2) or b >= len(pose2):
-                continue  # skip if out of bounds
+                continue
             
             vec1 = np.array(pose1[a]) - np.array(pose1[b])
             vec2 = np.array(pose2[a]) - np.array(pose2[b])
-            
-            distance = self.calculate_distance(vec1, vec2)
-            print(a , " " , b , " : ", distance)
-            print(vec1," ",vec2)
+            distance = np.linalg.norm(vec1 - vec2)
             total_distance += distance
 
         avg_distance = total_distance / len(JOINT_RELATIONS)
         similarity = 1 - min(avg_distance, 1.0)
-        return max(0, min(similarity, 1)) * 100
+        per = ((max(0, min(similarity, 1)) * 100)/70)*100
+        return 
 
 
 
@@ -357,13 +396,13 @@ class PoseDetectionApp:
                         ret1, frame1 = self.template_video.read()
                 
                 # Read user video frame (always real-time)
-                ret1, frame1 = self.user_video.read()
+                # ret1, frame1 = self.user_video.read()
                 ret2, frame2 = self.user_video.read()
                 
                 if not ret1 or frame1 is None or not ret2 or frame2 is None:
                     continue
 
-                frame1 = cv2.flip(frame1, 1)
+                # frame1 = cv2.flip(frame1, 1)
                 frame2 = cv2.flip(frame2, 1)
                 
                 try:
